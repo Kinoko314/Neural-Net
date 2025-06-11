@@ -1,7 +1,7 @@
 import numpy as np
 import os
 
-SAVE_DIR = "weights"
+SAVE_DIR = "/weights"
 
 def save_weights(nn, suffix=""):
     os.makedirs(SAVE_DIR, exist_ok=True)
