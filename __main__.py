@@ -10,12 +10,12 @@ WIDTH, HEIGHT = 600, 300
 win = pygame.display.set_mode((WIDTH, HEIGHT))
 clock = pygame.time.Clock()
 font = pygame.font.SysFont(None, 24)
-replay_buffer = deque(maxlen=200)
+# replay_buffer will likely still be an instance attribute of Game
 GRAVITY = 0.5
 JUMP_VELOCITY = -10
-NUM_AI_PLAYERS = 10 # Number of AI agents
+NUM_AI_PLAYERS = 10 # Reduced for clarity, maybe 10 for original design
 
-# (Platform and Player classes remain the same)
+# (Platform and Player classes remain the same as before)
 class Platform:
     def __init__(self, x, y, w, h):
         self.rect = pygame.Rect(x, y, w, h)
@@ -70,8 +70,12 @@ class Player:
     def check_score(self, score_line_x):
         center_x = self.x + self.width / 2
         last_center_x = self.last_x + self.width / 2
-        if (last_center_x < score_line_x <= center_x) or (last_center_x > score_line_x >= center_x):
-            self.score += 10
+        # Add condition: Only award points if the player is NOT on the ground
+        # or if they are just barely above it (you might need to adjust this threshold)
+        if self.y < 180:
+            if (last_center_x < score_line_x <= center_x or last_center_x > score_line_x >= center_x):
+                self.score += 10
+                # print(f"{self.y}")
         self.last_x = self.x
 
     def los_input(self, angle_deg, direction, platforms, max_dist=150):
@@ -120,7 +124,6 @@ class Player:
 
 class Game:
     def __init__(self):
-        # Initialize game state variables as attributes of the Game class
         self.FPS = 30
         self.platforms = [
             Platform(0, HEIGHT - 50, 200, 50),
@@ -136,79 +139,158 @@ class Game:
             Player(x=100, y=HEIGHT - 80, color=(0, 255 - i*5, i*5))
             for i in range(NUM_AI_PLAYERS)
         ]
-        self.last_scores = [p.score for p in self.ai_players]
 
-    def reset_all(self):
+        # --- New: Human Player ---
+        self.human_player = Player(x=50, y=HEIGHT - 80, color=(255, 255, 0)) # Distinct color
+        # Human player's actions will be derived from keyboard input, not NN
+
+        # --- Combine all players into one list for easier iteration for physics/drawing ---
+        self.all_players = self.ai_players + [self.human_player]
+
+
+        self.replay_buffer = deque(maxlen=30)
+        
+        # self.last_scores needs to track both AI and human scores now
+        self.last_scores = [p.score for p in self.ai_players] # Still only for AI for training
+        self.human_player_last_score = self.human_player.score
+
+        self.running = True
+        self.human_vx_input = 0 # To store horizontal input from keyboard
+        self.human_jump_pressed = False # To store jump input from keyboard
+
+    def reset_all_players(self):
         for i, p in enumerate(self.ai_players):
             p.respawn(100, HEIGHT - 80 - p.height)
-            self.last_scores[i] = p.score # Reset last score on respawn
+        self.human_player.respawn(50, HEIGHT - 80 - self.human_player.height) # Respawn human
+        self.last_scores = [p.score for p in self.ai_players]
+        self.human_player_last_score = self.human_player.score
 
-    def run_game(self): # This is now a method of the Game class
-        running = True
 
-        while running:
-            clock.tick(self.FPS) # Access FPS via self
-            win.fill((0, 0, 0))
+    def handle_input(self, event):
+        if event.type == pygame.QUIT:
+            self.running = False
+        elif event.type == pygame.KEYDOWN:
+            if event.key == pygame.K_q:
+                self.running = False
+            elif event.key == pygame.K_y:
+                self.FPS += 30
+            elif event.key == pygame.K_u:
+                if self.FPS > 30:
+                    self.FPS -= 30
+            elif event.key == pygame.K_r:
+                self.reset_all_players()
+            
+            # --- Human Player Controls ---
+            if event.key == pygame.K_LEFT:
+                self.human_vx_input = -1
+            elif event.key == pygame.K_RIGHT:
+                self.human_vx_input = 1
+            elif event.key == pygame.K_SPACE:
+                self.human_jump_pressed = True
 
-            for event in pygame.event.get():
-                if event.type == pygame.QUIT:
-                    running = False
-                elif event.type == pygame.KEYDOWN:
-                    if event.key == pygame.K_q:
-                        running = False
-                    elif event.key == pygame.K_y:
-                        self.FPS += 30 # Access FPS via self
-                    elif event.key == pygame.K_u:
-                        if self.FPS > 30:
-                            self.FPS -= 30 # Access FPS via self
-                        else: continue
-                    elif event.key == pygame.K_r:
-                        self.reset_all() # Call instance method
+        elif event.type == pygame.KEYUP:
+            # --- Human Player Controls ---
+            if event.key == pygame.K_LEFT and self.human_vx_input == -1:
+                self.human_vx_input = 0 # Stop moving left
+            elif event.key == pygame.K_RIGHT and self.human_vx_input == 1:
+                self.human_vx_input = 0 # Stop moving right
+            elif event.key == pygame.K_SPACE:
+                self.human_jump_pressed = False
 
-            for i, p in enumerate(self.ai_players): # Access ai_players via self
-                inputs = np.array([
-                    p.los_input(30, -1, self.platforms), # Access platforms via self
-                    p.los_input(30, 1, self.platforms),  # Access platforms via self
-                    p.ground_gap_input(self.platforms), # Access platforms via self
-                ])
-                out = self.ai_nets[i].forward(inputs) + np.random.normal(0, 0.1, size=2) # Access ai_nets via self
-                replay_buffer.append((inputs.copy(), out.copy()))
 
-                p.vx = out[0] * 3
-                if p.on_ground and out[1] > 0.8:
-                    p.vy = JUMP_VELOCITY
-                p.apply_physics(self.platforms) # Access platforms via self
-                p.check_score(self.score_line_x) # Access score_line_x via self
+    def update(self):
+        # --- Update AI Players ---
+        for i, p in enumerate(self.ai_players):
+            inputs = np.array([
+                p.los_input(30, -1, self.platforms),
+                p.los_input(30, 1, self.platforms),
+                p.ground_gap_input(self.platforms),
+            ])
+            out = self.ai_nets[i].forward(inputs) + np.random.normal(0, 0.1, size=2)
+            self.replay_buffer.append((inputs.copy(), out.copy()))
 
-                # If you fall off the screen, respawn and lose a point.                                                   
-                if p.y > HEIGHT:
+            p.vx = out[0] * 3
+            if p.on_ground and out[1] > 0.8:
+                p.vy = JUMP_VELOCITY
+            
+            # Physics and Scoring for AI players are handled in the general loop below
+            # as they are now part of self.all_players
+
+            score_diff = p.score - self.last_scores[i]
+            if score_diff != 0:
+                gamma = 0.95
+                if self.replay_buffer:
+                    current_input, current_output = self.replay_buffer[-1]
+                    train_step(self.ai_nets[i], current_input, current_output, score_diff)
+                    save_weights(self.ai_nets[i], suffix=f"_{i}")
+                self.last_scores[i] = p.score
+
+        # --- Update Human Player ---
+        # Apply human input to human_player's velocity
+        self.human_player.vx = self.human_vx_input * 3 # Control speed like AI
+        if self.human_player.on_ground and self.human_jump_pressed:
+            self.human_player.vy = JUMP_VELOCITY
+        
+        # --- Apply physics and check score for ALL players (AI and Human) ---
+        for p in self.all_players: # Iterate through the combined list
+            p.apply_physics(self.platforms)
+            p.check_score(self.score_line_x)
+
+            # Check if player fell off (for both AI and human)
+            if p.y > HEIGHT:
+                # If it's an AI player, respawn it in its specific spot
+                if p in self.ai_players:
                     p.respawn(100, HEIGHT - 80 - p.height)
                     p.score -= 1
+                # If it's the human player, respawn in its specific spot
+                elif p == self.human_player:
+                    p.respawn(50, HEIGHT - 80 - p.height)
+                    p.score -= 1
 
-                score_diff = p.score - self.last_scores[i] # Access last_scores via self
-                if score_diff != 0:
-                    gamma = 0.95
-                    for j, (inp, act) in enumerate(reversed(replay_buffer)):
-                        reward = score_diff * (gamma ** j)
-                        train_step(self.ai_nets[i], inp, act, reward) # Access ai_nets via self
-                        save_weights(self.ai_nets[i], suffix=f"_{i}")
-                    self.last_scores[i] = p.score # Access last_scores via self
 
-            for plat in self.platforms: # Access platforms via self
-                plat.draw()
-            pygame.draw.line(win, (255, 255, 0), (self.score_line_x, 0), (self.score_line_x, HEIGHT), 1) # Access score_line_x via self
+        # --- Human Player Scoring update (separate from AI training) ---
+        human_score_diff = self.human_player.score - self.human_player_last_score
+        if human_score_diff != 0:
+            # You could add human-specific feedback or logging here if desired
+            self.human_player_last_score = self.human_player.score
 
-            for p in self.ai_players: # Access ai_players via self
-                p.draw()
 
-            for i, p in enumerate(self.ai_players): # Access ai_players via self
-                txt = font.render(f"AI{i} Score: {p.score}", True, (255, 255, 255))
-                win.blit(txt, (10, 10 + 20 * i))
+    def draw(self):
+        win.fill((0, 0, 0))
 
-            pygame.display.flip()
+        for plat in self.platforms:
+            plat.draw()
+        pygame.draw.line(win, (255, 255, 0), (self.score_line_x, 0), (self.score_line_x, HEIGHT), 1)
+
+        # Draw all players (AI and Human)
+        for p in self.all_players:
+            p.draw()
+
+        # Display scores for AI players
+        for i, p in enumerate(self.ai_players):
+            txt = font.render(f"AI{i} Score: {p.score}", True, (255, 255, 255))
+            win.blit(txt, (10, 10 + 20 * i))
+
+        # Display human player score
+        human_txt = font.render(f"Human Score: {self.human_player.score}", True, (255, 255, 0))
+        win.blit(human_txt, (10, 10 + 20 * NUM_AI_PLAYERS)) # Place it below AI scores
+
+        pygame.display.flip()
+
+    def run(self):
+        while self.running:
+            clock.tick(self.FPS)
+
+            for event in pygame.event.get():
+                self.handle_input(event)
+
+            self.update()
+            self.draw()
 
         pygame.quit()
 
+
+# --- Main Execution ---
 if __name__ == "__main__":
-    game_instance = Game() # Create an instance of the Game class
-    game_instance.run_game() # Call the run_game method on that instance
+    game = Game()
+    game.run()
