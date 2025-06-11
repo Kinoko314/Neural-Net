@@ -4,6 +4,7 @@ from .nn import SimpleNN
 import math
 from .training_utils import load_weights, save_weights, train_step
 from collections import deque
+import random
 
 pygame.init()
 WIDTH, HEIGHT = 600, 300
@@ -15,7 +16,7 @@ GRAVITY = 0.5
 JUMP_VELOCITY = -10
 NUM_AI_PLAYERS = 10 # Reduced for clarity, maybe 10 for original design
 
-# (Platform and Player classes remain the same as before)
+
 class Platform:
     def __init__(self, x, y, w, h):
         self.rect = pygame.Rect(x, y, w, h)
@@ -61,24 +62,35 @@ class Player:
         self.draw_los(30, -1)
         self.draw_los(30, 1)
 
-    def respawn(self, start_x, start_y):
-        self.x = start_x
-        self.y = start_y
+    # Modified respawn method to take platforms list
+    def respawn(self, platforms): # <--- MODIFIED: Removed start_x, start_y
+        chosen_platform = random.choice(platforms) # Pick a random ground platform
+        
+        # Calculate random x within the chosen platform
+        # Ensure the player is fully on the platform
+        self.x = random.randint(chosen_platform.rect.left, chosen_platform.rect.right - self.width)
+        self.y = chosen_platform.rect.top - self.height # Spawn on top of the platform
+        
         self.vx = 0
         self.vy = 0
+        self.score = 0 # Reset score here
+        self.last_x = self.x # Reset last_x as well
+
 
     def check_score(self, score_line_x):
         center_x = self.x + self.width / 2
         last_center_x = self.last_x + self.width / 2
-        # Add condition: Only award points if the player is NOT on the ground
-        # or if they are just barely above it (you might need to adjust this threshold)
-        if self.y < 180:
-            if (last_center_x < score_line_x <= center_x or last_center_x > score_line_x >= center_x):
-                self.score += 10
-                # print(f"{self.y}")
+        
+        # The y-coordinate for the top of the ground platforms
+        ground_level_y = HEIGHT - 50 # This is still your ground level
+
+        # Check if the player crossed the score line AND their bottom is above the ground level
+        if (last_center_x < score_line_x <= center_x or last_center_x > score_line_x >= center_x) and \
+           (self.y + self.height) < ground_level_y: # This is the correct condition
+            self.score += 10
         self.last_x = self.x
 
-    def los_input(self, angle_deg, direction, platforms, max_dist=150):
+    def los_input(self, angle_deg, direction, platforms, max_dist=300):
         angle_rad = math.radians(angle_deg)
         dx = math.cos(angle_rad) * direction
         dy = math.sin(angle_rad)
@@ -124,6 +136,7 @@ class Player:
 
 class Game:
     def __init__(self):
+        self.is_human = False
         self.FPS = 30
         self.platforms = [
             Platform(0, HEIGHT - 50, 200, 50),
@@ -135,35 +148,40 @@ class Game:
         for idx, net in enumerate(self.ai_nets):
             load_weights(net, suffix=f"_{idx}")
 
+        # Initialize AI players with a random spawn
         self.ai_players = [
-            Player(x=100, y=HEIGHT - 80, color=(0, 255 - i*5, i*5))
+            Player(x=0, y=0, color=(0, 255 - i*5, i*5)) # Temporary x,y
             for i in range(NUM_AI_PLAYERS)
         ]
+        for p in self.ai_players:
+            p.respawn(self.platforms) # <--- Initial random spawn for AI
+
 
         # --- New: Human Player ---
-        self.human_player = Player(x=50, y=HEIGHT - 80, color=(255, 255, 0)) # Distinct color
-        # Human player's actions will be derived from keyboard input, not NN
-
-        # --- Combine all players into one list for easier iteration for physics/drawing ---
-        self.all_players = self.ai_players + [self.human_player]
-
+        if self.is_human == True:
+            self.human_player = Player(x=0, y=0, color=(255, 255, 0)) # Temporary x,y
+            self.human_player.respawn(self.platforms) # <--- Initial random spawn for Human
+            self.all_players = self.ai_players + [self.human_player]
+            self.human_player_last_score = self.human_player.score 
+            self.human_vx_input = 0
+            self.human_jump_pressed = False
+        else: 
+            self.all_players = self.ai_players 
 
         self.replay_buffer = deque(maxlen=30)
-        
-        # self.last_scores needs to track both AI and human scores now
-        self.last_scores = [p.score for p in self.ai_players] # Still only for AI for training
-        self.human_player_last_score = self.human_player.score
-
+        self.last_scores = [p.score for p in self.ai_players]
+       
         self.running = True
-        self.human_vx_input = 0 # To store horizontal input from keyboard
-        self.human_jump_pressed = False # To store jump input from keyboard
+
 
     def reset_all_players(self):
-        for i, p in enumerate(self.ai_players):
-            p.respawn(100, HEIGHT - 80 - p.height)
-        self.human_player.respawn(50, HEIGHT - 80 - self.human_player.height) # Respawn human
+        for p in self.ai_players: # <--- Loop and call respawn
+            p.respawn(self.platforms)
+        if self.is_human == True:
+            self.human_player.respawn(self.platforms) # <--- Call respawn for human
+            self.human_player_last_score = self.human_player.score
+
         self.last_scores = [p.score for p in self.ai_players]
-        self.human_player_last_score = self.human_player.score
 
 
     def handle_input(self, event):
@@ -181,21 +199,23 @@ class Game:
                 self.reset_all_players()
             
             # --- Human Player Controls ---
-            if event.key == pygame.K_LEFT:
-                self.human_vx_input = -1
-            elif event.key == pygame.K_RIGHT:
-                self.human_vx_input = 1
-            elif event.key == pygame.K_SPACE:
-                self.human_jump_pressed = True
+            if self.is_human == True: # Only process human input if is_human is True
+                if event.key == pygame.K_LEFT:
+                    self.human_vx_input = -1
+                elif event.key == pygame.K_RIGHT:
+                    self.human_vx_input = 1
+                elif event.key == pygame.K_SPACE:
+                    self.human_jump_pressed = True
 
         elif event.type == pygame.KEYUP:
             # --- Human Player Controls ---
-            if event.key == pygame.K_LEFT and self.human_vx_input == -1:
-                self.human_vx_input = 0 # Stop moving left
-            elif event.key == pygame.K_RIGHT and self.human_vx_input == 1:
-                self.human_vx_input = 0 # Stop moving right
-            elif event.key == pygame.K_SPACE:
-                self.human_jump_pressed = False
+            if self.is_human == True: # Only process human input if is_human is True
+                if event.key == pygame.K_LEFT and self.human_vx_input == -1:
+                    self.human_vx_input = 0
+                elif event.key == pygame.K_RIGHT and self.human_vx_input == 1:
+                    self.human_vx_input = 0
+                elif event.key == pygame.K_SPACE:
+                    self.human_jump_pressed = False
 
 
     def update(self):
@@ -206,16 +226,13 @@ class Game:
                 p.los_input(30, 1, self.platforms),
                 p.ground_gap_input(self.platforms),
             ])
-            out = self.ai_nets[i].forward(inputs) + np.random.normal(0, 0.1, size=2)
+            out = self.ai_nets[i].forward(inputs) # + np.random.normal(0, 0.1, size=2)
             self.replay_buffer.append((inputs.copy(), out.copy()))
 
             p.vx = out[0] * 3
             if p.on_ground and out[1] > 0.8:
                 p.vy = JUMP_VELOCITY
             
-            # Physics and Scoring for AI players are handled in the general loop below
-            # as they are now part of self.all_players
-
             score_diff = p.score - self.last_scores[i]
             if score_diff != 0:
                 gamma = 0.95
@@ -226,34 +243,28 @@ class Game:
                 self.last_scores[i] = p.score
 
         # --- Update Human Player ---
-        # Apply human input to human_player's velocity
-        self.human_player.vx = self.human_vx_input * 3 # Control speed like AI
-        if self.human_player.on_ground and self.human_jump_pressed:
-            self.human_player.vy = JUMP_VELOCITY
+        if self.is_human == True:
+            self.human_player.vx = self.human_vx_input * 3
+            if self.human_player.on_ground and self.human_jump_pressed:
+                self.human_player.vy = JUMP_VELOCITY
         
         # --- Apply physics and check score for ALL players (AI and Human) ---
-        for p in self.all_players: # Iterate through the combined list
+        for p in self.all_players:
             p.apply_physics(self.platforms)
             p.check_score(self.score_line_x)
 
             # Check if player fell off (for both AI and human)
             if p.y > HEIGHT:
-                # If it's an AI player, respawn it in its specific spot
-                if p in self.ai_players:
-                    p.respawn(100, HEIGHT - 80 - p.height)
-                    p.score -= 1
-                # If it's the human player, respawn in its specific spot
-                elif p == self.human_player:
-                    p.respawn(50, HEIGHT - 80 - p.height)
-                    p.score -= 1
+                p.respawn(self.platforms) # <--- Respawn with random position
+                p.score -= 1 # Penalize for falling
 
 
-        # --- Human Player Scoring update (separate from AI training) ---
-        human_score_diff = self.human_player.score - self.human_player_last_score
-        if human_score_diff != 0:
-            # You could add human-specific feedback or logging here if desired
-            self.human_player_last_score = self.human_player.score
-
+    '''    # --- Human Player Scoring update (separate from AI training) ---
+        if self.is_human == True:
+            human_score_diff = self.human_player.score - self.human_player_last_score
+            if human_score_diff != 0:
+                self.human_player_last_score = self.human_player.score
+    '''
 
     def draw(self):
         win.fill((0, 0, 0))
@@ -262,18 +273,16 @@ class Game:
             plat.draw()
         pygame.draw.line(win, (255, 255, 0), (self.score_line_x, 0), (self.score_line_x, HEIGHT), 1)
 
-        # Draw all players (AI and Human)
         for p in self.all_players:
             p.draw()
 
-        # Display scores for AI players
         for i, p in enumerate(self.ai_players):
             txt = font.render(f"AI{i} Score: {p.score}", True, (255, 255, 255))
             win.blit(txt, (10, 10 + 20 * i))
 
-        # Display human player score
-        human_txt = font.render(f"Human Score: {self.human_player.score}", True, (255, 255, 0))
-        win.blit(human_txt, (10, 10 + 20 * NUM_AI_PLAYERS)) # Place it below AI scores
+        if self.is_human:
+            human_txt = font.render(f"Human Score: {self.human_player.score}", True, (255, 255, 0))
+            win.blit(human_txt, (10, 10 + 20 * NUM_AI_PLAYERS))
 
         pygame.display.flip()
 
