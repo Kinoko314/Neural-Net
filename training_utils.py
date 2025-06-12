@@ -48,3 +48,6 @@ def train_step(nn, inputs, action_performed, reward, learning_rate=0.01):
     nn.b2 += learning_rate * db2
     nn.W1 += learning_rate * dW1
     nn.b1 += learning_rate * db1
+    print(error, "\n\n", outputs, "\n\n", reward, "\n\n", pred, "\n\n",)
+    # print(z1, "\n\n", a1, "\n\n", z2, "\n\n", pred, "\n\n")
+    # print(learning_rate, "\n\n", dW2, "\n\n", db2, "\n\n", dW1, "\n\n", db1)
