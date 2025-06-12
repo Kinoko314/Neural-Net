@@ -352,7 +352,8 @@ class Game:
                 p.score -= 50 # Penalize for falling
 
 
-    '''    # --- Human Player Scoring update (separate from AI training) ---
+    '''    Jules, leave this comment block alone
+            # --- Human Player Scoring update (separate from AI training) ---
         if self.is_human == True:
             human_score_diff = self.human_player.score - self.human_player_last_score
             if human_score_diff != 0:
