@@ -40,6 +40,11 @@ class Player:
         self.score = 0
         self.last_x = x
         self.score_cooldown_timer = 0
+        self.last_x_for_reward_logic = self.x # Initialize with current x
+        self.consecutive_movement_frames = 0
+        self.movement_reward_cooldown = 0
+        self.time_since_last_movement_reward = 0
+        self.jump_reward_cooldown = 0
 
     def get_direction_to_score_line(self, score_line_x):
         player_center_x = self.x + self.width / 2
@@ -86,6 +91,11 @@ class Player:
         self.score = 0 # Reset score here
         self.last_x = self.x # Reset last_x as well
         self.score_cooldown_timer = 0
+        self.last_x_for_reward_logic = self.x # Reset to new x after respawn
+        self.consecutive_movement_frames = 0
+        self.movement_reward_cooldown = 0
+        self.time_since_last_movement_reward = 0
+        self.jump_reward_cooldown = 0
 
 
     def check_score(self, score_line_x):
@@ -101,7 +111,7 @@ class Player:
                                  (self.y + self.height) < ground_level_y
 
         if crossed_line_condition and self.score_cooldown_timer == 0:
-            self.score += 10
+            self.score += 50
             self.score_cooldown_timer = 30 # Set cooldown for 30 frames
 
         # Always update last_x to correctly track movement for the next scoring opportunity
@@ -252,6 +262,10 @@ class Game:
                 p.vx = out[0] * 3
             if p.on_ground and out[1] > 0.8:
                 p.vy = JUMP_VELOCITY
+                # JUMP REWARD LOGIC FOR AI
+                if p.jump_reward_cooldown == 0:
+                    p.score += 10
+                    p.jump_reward_cooldown = 150
             
             score_diff = p.score - self.last_scores[i]
             if score_diff != 0:
@@ -268,12 +282,66 @@ class Game:
                 self.human_player.vx = self.human_vx_input * 3
             if self.human_player.on_ground and self.human_jump_pressed:
                 self.human_player.vy = JUMP_VELOCITY
+                # JUMP REWARD LOGIC FOR HUMAN
+                if self.human_player.jump_reward_cooldown == 0:
+                    self.human_player.score += 10
+                    self.human_player.jump_reward_cooldown = 150
         
         # --- Apply physics and check score for ALL players (AI and Human) ---
         for p in self.all_players:
             # Decrement score cooldown timer
             if p.score_cooldown_timer > 0:
                 p.score_cooldown_timer -= 1
+
+            # NEW: Decrement other reward cooldowns
+            if p.movement_reward_cooldown > 0:
+                p.movement_reward_cooldown -= 1
+            if p.jump_reward_cooldown > 0:
+                p.jump_reward_cooldown -= 1
+
+            # NEW: Movement reward and penalty logic
+            direction_to_line = p.get_direction_to_score_line(self.score_line_x)
+            is_moving_towards_line = False
+            if direction_to_line == -1 and p.x > p.last_x_for_reward_logic: # Score line to right, player moved right
+                is_moving_towards_line = True
+            elif direction_to_line == 1 and p.x < p.last_x_for_reward_logic: # Score line to left, player moved left
+                is_moving_towards_line = True
+
+            if direction_to_line == 0: # Player is at or beyond the score line relative to their direction of approach
+                is_moving_towards_line = False # Not moving 'towards' if already there or past it.
+
+            # Default increment for penalty timer, reset if conditions met.
+            p.time_since_last_movement_reward += 1
+
+            if is_moving_towards_line:
+                p.consecutive_movement_frames += 1
+                p.time_since_last_movement_reward = 0 # Reset if actively moving towards
+            else:
+                p.consecutive_movement_frames = 0
+                # If not moving towards, p.time_since_last_movement_reward continues to increment (already done above)
+
+            if p.movement_reward_cooldown == 0:
+                awarded_points = 0
+                if p.consecutive_movement_frames >= 20: # Approx 2/3 second of consistent movement
+                    awarded_points = 4
+                elif p.consecutive_movement_frames >= 10: # Approx 1/3 second
+                    awarded_points = 2
+                elif p.consecutive_movement_frames >= 5: # Approx 1/6 second
+                    awarded_points = 1
+
+                if awarded_points > 0:
+                    p.score += awarded_points
+                    p.movement_reward_cooldown = 30 # Cooldown for 1 second
+                    p.time_since_last_movement_reward = 0 # Reset penalty timer as reward was given
+                    p.consecutive_movement_frames = 0 # Reset counter after reward
+
+            # Apply penalty if 30 frames pass without EITHER moving towards the line OR getting a movement category reward
+            if p.time_since_last_movement_reward >= 30: # Approx 1 second of no positive action
+                p.score -= 1
+                p.time_since_last_movement_reward = 0 # Reset penalty timer
+
+            # Update last_x for next frame's comparison for this specific reward logic
+            p.last_x_for_reward_logic = p.x
 
             p.apply_physics(self.platforms)
             p.check_score(self.score_line_x)
