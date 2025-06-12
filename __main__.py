@@ -39,6 +39,7 @@ class Player:
         self.color = color
         self.score = 0
         self.last_x = x
+        self.score_cooldown_timer = 0
 
     def get_direction_to_score_line(self, score_line_x):
         player_center_x = self.x + self.width / 2
@@ -84,6 +85,7 @@ class Player:
         self.vy = 0
         self.score = 0 # Reset score here
         self.last_x = self.x # Reset last_x as well
+        self.score_cooldown_timer = 0
 
 
     def check_score(self, score_line_x):
@@ -93,10 +95,16 @@ class Player:
         # The y-coordinate for the top of the ground platforms
         ground_level_y = HEIGHT - 50 # This is still your ground level
 
-        # Check if the player crossed the score line AND their bottom is above the ground level
-        if (last_center_x < score_line_x <= center_x or last_center_x > score_line_x >= center_x) and \
-           (self.y + self.height) < ground_level_y: # This is the correct condition
+        # Determine if the line was crossed
+        crossed_line_condition = (last_center_x < score_line_x <= center_x or \
+                                  last_center_x > score_line_x >= center_x) and \
+                                 (self.y + self.height) < ground_level_y
+
+        if crossed_line_condition and self.score_cooldown_timer == 0:
             self.score += 10
+            self.score_cooldown_timer = 30 # Set cooldown for 30 frames
+
+        # Always update last_x to correctly track movement for the next scoring opportunity
         self.last_x = self.x
 
     def los_input(self, angle_deg, direction, platforms, max_dist=300):
@@ -261,6 +269,10 @@ class Game:
         
         # --- Apply physics and check score for ALL players (AI and Human) ---
         for p in self.all_players:
+            # Decrement score cooldown timer
+            if p.score_cooldown_timer > 0:
+                p.score_cooldown_timer -= 1
+
             p.apply_physics(self.platforms)
             p.check_score(self.score_line_x)
 
