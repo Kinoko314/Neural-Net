@@ -12,10 +12,13 @@ def load_weights(nn, suffix=""):
     path = os.path.join(SAVE_DIR, f"ai_weights{suffix}.npz")
     if os.path.exists(path):
         data = np.load(path)
-        nn.W1 = data['W1']
-        nn.b1 = data['b1']
-        nn.W2 = data['W2']
-        nn.b2 = data['b2']
+        if 'W1' in data and data['W1'].shape == nn.W1.shape:
+            nn.W1 = data['W1']
+            nn.b1 = data['b1']
+            nn.W2 = data['W2']
+            nn.b2 = data['b2']
+        else:
+            print(f"Weight mismatch or missing W1 for ai_weights{suffix}.npz. Using newly initialized weights for this network.")
 
 def train_step(nn, inputs, outputs, reward, learning_rate=0.01):
     # Forward pass

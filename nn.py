@@ -2,7 +2,7 @@ import numpy as np
 
 class SimpleNN:
     def __init__(self):
-        self.W1 = np.random.randn(3, 6)
+        self.W1 = np.random.randn(5, 6)
         self.b1 = np.zeros(6)
         self.W2 = np.random.randn(6, 2)
         self.b2 = np.zeros(2)

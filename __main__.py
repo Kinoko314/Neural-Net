@@ -40,6 +40,15 @@ class Player:
         self.score = 0
         self.last_x = x
 
+    def get_direction_to_score_line(self, score_line_x):
+        player_center_x = self.x + self.width / 2
+        if player_center_x < score_line_x:
+            return -1.0  # Score line is to the right
+        elif player_center_x > score_line_x:
+            return 1.0   # Score line is to the left
+        else:
+            return 0.0   # Player is at the score line
+
     def get_rect(self):
         return pygame.Rect(self.x, self.y, self.width, self.height)
 
@@ -225,6 +234,8 @@ class Game:
                 p.los_input(30, -1, self.platforms),
                 p.los_input(30, 1, self.platforms),
                 p.ground_gap_input(self.platforms),
+                p.vy / 10.0,  # Normalized vertical velocity
+                p.get_direction_to_score_line(self.score_line_x) # Direction to score line
             ])
             out = self.ai_nets[i].forward(inputs) # + np.random.normal(0, 0.1, size=2)
             self.replay_buffer.append((inputs.copy(), out.copy()))
