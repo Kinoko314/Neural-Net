@@ -17,21 +17,29 @@ def load_weights(nn, suffix=""):
         nn.W2 = data['W2']
         nn.b2 = data['b2']
 
-def train_step(nn, inputs, outputs, reward, learning_rate=0.01):
+def train_step(nn, inputs, action_performed, reward, learning_rate=0.01):
     # Forward pass
     z1 = np.dot(inputs, nn.W1) + nn.b1
     a1 = np.tanh(z1)
     z2 = np.dot(a1, nn.W2) + nn.b2
-    pred = np.tanh(z2)
+    current_pred = np.tanh(z2)
 
-    # Loss is reward-based: push toward actual output if reward is positive
-    error = (outputs - pred) * reward
+    # Determine learning_target based on action_performed and reward
+    if reward > 0:
+        learning_target = np.array([np.sign(a) if a != 0 else 0 for a in action_performed])
+    elif reward < 0:
+        learning_target = np.array([np.sign(a) * -1 if a != 0 else 0 for a in action_performed])
+    else:  # reward == 0
+        learning_target = np.copy(action_performed)
+
+    # Error term for backpropagation
+    error_for_gradient = (learning_target - current_pred) * reward
 
     # Backpropagation
-    dW2 = np.outer(a1, error * (1 - pred**2))
-    db2 = error * (1 - pred**2)
+    dW2 = np.outer(a1, error_for_gradient * (1 - current_pred**2))
+    db2 = error_for_gradient * (1 - current_pred**2)
 
-    da1 = np.dot(nn.W2, error * (1 - pred**2))
+    da1 = np.dot(nn.W2, error_for_gradient * (1 - current_pred**2))
     dW1 = np.outer(inputs, da1 * (1 - a1**2))
     db1 = da1 * (1 - a1**2)
 
