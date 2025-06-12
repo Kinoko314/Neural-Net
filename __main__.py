@@ -111,7 +111,7 @@ class Player:
                                  (self.y + self.height) < ground_level_y
 
         if crossed_line_condition and self.score_cooldown_timer == 0:
-            self.score += 50
+            self.score += 200
             self.score_cooldown_timer = 30 # Set cooldown for 30 frames
 
         # Always update last_x to correctly track movement for the next scoring opportunity
@@ -260,7 +260,7 @@ class Game:
 
             if p.on_ground:
                 p.vx = out[0] * 3
-            if p.on_ground and out[1] > 0.8:
+            if p.on_ground and out[1] > 0.5:
                 p.vy = JUMP_VELOCITY
                 # JUMP REWARD LOGIC FOR AI
                 if p.jump_reward_cooldown == 0:
@@ -349,7 +349,7 @@ class Game:
             # Check if player fell off (for both AI and human)
             if p.y > HEIGHT:
                 p.respawn(self.platforms) # <--- Respawn with random position
-                p.score -= 1 # Penalize for falling
+                p.score -= 50 # Penalize for falling
 
 
     '''    # --- Human Player Scoring update (separate from AI training) ---

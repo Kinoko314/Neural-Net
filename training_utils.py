@@ -1,7 +1,7 @@
 import numpy as np
 import os
 
-SAVE_DIR = "weights"
+SAVE_DIR = "Neural Net/weights/"
 
 def save_weights(nn, suffix=""):
     os.makedirs(SAVE_DIR, exist_ok=True)
@@ -20,7 +20,7 @@ def load_weights(nn, suffix=""):
         else:
             print(f"Weight mismatch or missing W1 for ai_weights{suffix}.npz. Using newly initialized weights for this network.")
 
-def train_step(nn, inputs, outputs, reward, learning_rate=0.01):
+def train_step(nn, inputs, outputs, reward, learning_rate=0.10):
     # Forward pass
     z1 = np.dot(inputs, nn.W1) + nn.b1
     a1 = np.tanh(z1)
