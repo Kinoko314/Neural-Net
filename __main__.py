@@ -248,7 +248,8 @@ class Game:
             out = self.ai_nets[i].forward(inputs) # + np.random.normal(0, 0.1, size=2)
             self.replay_buffer.append((inputs.copy(), out.copy()))
 
-            p.vx = out[0] * 3
+            if p.on_ground:
+                p.vx = out[0] * 3
             if p.on_ground and out[1] > 0.8:
                 p.vy = JUMP_VELOCITY
             
@@ -263,7 +264,8 @@ class Game:
 
         # --- Update Human Player ---
         if self.is_human == True:
-            self.human_player.vx = self.human_vx_input * 3
+            if self.human_player.on_ground:
+                self.human_player.vx = self.human_vx_input * 3
             if self.human_player.on_ground and self.human_jump_pressed:
                 self.human_player.vy = JUMP_VELOCITY
         
