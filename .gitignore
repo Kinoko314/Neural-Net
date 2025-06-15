@@ -6,3 +6,6 @@ __pycache__/__main__.cpython-313.pyc
 __pycache__/__init__.cpython-313.pyc
 *.pyc
 *.npy
+/weights
+/__pycache__
+*.pyc

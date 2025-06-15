@@ -1,7 +1,7 @@
 import numpy as np
 import os
 
-SAVE_DIR = "/weights"
+SAVE_DIR = "Neural Net/weights"
 
 def save_weights(nn, suffix=""):
     os.makedirs(SAVE_DIR, exist_ok=True)
@@ -17,7 +17,7 @@ def load_weights(nn, suffix=""):
         nn.W2 = data['W2']
         nn.b2 = data['b2']
 
-def train_step(nn, inputs, action_performed, reward, learning_rate=0.01):
+def train_step(nn, inputs, action_performed, reward, learning_rate=0.1):
     # Forward pass
     z1 = np.dot(inputs, nn.W1) + nn.b1
     a1 = np.tanh(z1)
@@ -48,6 +48,5 @@ def train_step(nn, inputs, action_performed, reward, learning_rate=0.01):
     nn.b2 += learning_rate * db2
     nn.W1 += learning_rate * dW1
     nn.b1 += learning_rate * db1
-    print(error, "\n\n", outputs, "\n\n", reward, "\n\n", pred, "\n\n",)
-    # print(z1, "\n\n", a1, "\n\n", z2, "\n\n", pred, "\n\n")
-    # print(learning_rate, "\n\n", dW2, "\n\n", db2, "\n\n", dW1, "\n\n", db1)
+    
+    #print(error_for_gradient, "\n\n", learning_target, "\n\n", current_pred, "\n\n", reward, "\n\n",)

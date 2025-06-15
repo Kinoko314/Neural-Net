@@ -2,9 +2,9 @@ import numpy as np
 
 class SimpleNN:
     def __init__(self):
-        self.W1 = np.random.randn(3, 6)
-        self.b1 = np.zeros(6)
-        self.W2 = np.random.randn(6, 2)
+        self.W1 = np.random.randn(6, 12)
+        self.b1 = np.zeros(12)
+        self.W2 = np.random.randn(12, 2)
         self.b2 = np.zeros(2)
 
     def forward(self, x):

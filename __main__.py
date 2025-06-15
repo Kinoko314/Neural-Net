@@ -39,6 +39,21 @@ class Player:
         self.color = color
         self.score = 0
         self.last_x = x
+        self.score_cooldown_timer = 0
+        self.last_x_for_reward_logic = self.x # Initialize with current x
+        self.consecutive_movement_frames = 0
+        self.movement_reward_cooldown = 0
+        self.time_since_last_movement_reward = 0
+        self.jump_reward_cooldown = 0
+
+    def get_direction_to_score_line(self, score_line_x):
+        player_center_x = self.x + self.width / 2
+        if player_center_x < score_line_x:
+            return -1.0  # Score line is to the right
+        elif player_center_x > score_line_x:
+            return 1.0   # Score line is to the left
+        else:
+            return 0.0   # Player is at the score line
 
     def get_rect(self):
         return pygame.Rect(self.x, self.y, self.width, self.height)
@@ -59,8 +74,8 @@ class Player:
 
     def draw(self):
         pygame.draw.rect(win, self.color, self.get_rect())
-        self.draw_los(30, -1)
-        self.draw_los(30, 1)
+        self.draw_los(40, -1)
+        self.draw_los(40, 1)
 
     # Modified respawn method to take platforms list
     def respawn(self, platforms): # <--- MODIFIED: Removed start_x, start_y
@@ -75,6 +90,12 @@ class Player:
         self.vy = 0
         self.score = 0 # Reset score here
         self.last_x = self.x # Reset last_x as well
+        self.score_cooldown_timer = 0
+        self.last_x_for_reward_logic = self.x # Reset to new x after respawn
+        self.consecutive_movement_frames = 0
+        self.movement_reward_cooldown = 0
+        self.time_since_last_movement_reward = 0
+        self.jump_reward_cooldown = 0
 
 
     def check_score(self, score_line_x):
@@ -84,10 +105,16 @@ class Player:
         # The y-coordinate for the top of the ground platforms
         ground_level_y = HEIGHT - 50 # This is still your ground level
 
-        # Check if the player crossed the score line AND their bottom is above the ground level
-        if (last_center_x < score_line_x <= center_x or last_center_x > score_line_x >= center_x) and \
-           (self.y + self.height) < ground_level_y: # This is the correct condition
-            self.score += 10
+        # Determine if the line was crossed
+        crossed_line_condition = (last_center_x < score_line_x <= center_x or \
+                                  last_center_x > score_line_x >= center_x) and \
+                                 (self.y + self.height) < ground_level_y
+
+        if crossed_line_condition and self.score_cooldown_timer == 0:
+            self.score += 200
+            self.score_cooldown_timer = 30 # Set cooldown for 30 frames
+
+        # Always update last_x to correctly track movement for the next scoring opportunity
         self.last_x = self.x
 
     def los_input(self, angle_deg, direction, platforms, max_dist=300):
@@ -150,9 +177,15 @@ class Game:
 
         # Initialize AI players with a random spawn
         self.ai_players = [
-            Player(x=0, y=0, color=(0, 255 - i*5, i*5)) # Temporary x,y
+            Player(
+                x=0, y=0, # These are temporary and will be overridden by respawn
+                color=(random.randint(0, 255), # Random Red
+                       random.randint(0, 255), # Random Green
+                       random.randint(0, 255)) # Random Blue
+            )
             for i in range(NUM_AI_PLAYERS)
         ]
+        
         for p in self.ai_players:
             p.respawn(self.platforms) # <--- Initial random spawn for AI
 
@@ -222,16 +255,30 @@ class Game:
         # --- Update AI Players ---
         for i, p in enumerate(self.ai_players):
             inputs = np.array([
-                p.los_input(30, -1, self.platforms),
-                p.los_input(30, 1, self.platforms),
+                p.los_input(40, -1, self.platforms),
+                p.los_input(40, 1, self.platforms),
                 p.ground_gap_input(self.platforms),
+                p.vy / 10.0,  # Normalized vertical velocity
+                p.x / 10,
+                p.get_direction_to_score_line(self.score_line_x) # Direction to score line
             ])
+            '''
+            print(p.los_input(40, -1, self.platforms))
+            print(p.los_input(40, 1, self.platforms))
+            print(p.ground_gap_input(self.platforms))
+            print(p.vy / 10)
+            '''
             out = self.ai_nets[i].forward(inputs) # + np.random.normal(0, 0.1, size=2)
             self.replay_buffer.append((inputs.copy(), out.copy()))
 
-            p.vx = out[0] * 3
-            if p.on_ground and out[1] > 0.8:
+            if p.on_ground:
+                p.vx = out[0] * 3
+            if p.on_ground and out[1] > 0.5:
                 p.vy = JUMP_VELOCITY
+                # JUMP REWARD LOGIC FOR AI
+                if p.jump_reward_cooldown == 0:
+                    p.score += 10
+                    p.jump_reward_cooldown = 150
             
             score_diff = p.score - self.last_scores[i]
             if score_diff != 0:
@@ -244,22 +291,82 @@ class Game:
 
         # --- Update Human Player ---
         if self.is_human == True:
-            self.human_player.vx = self.human_vx_input * 3
+            if self.human_player.on_ground:
+                self.human_player.vx = self.human_vx_input * 3
             if self.human_player.on_ground and self.human_jump_pressed:
                 self.human_player.vy = JUMP_VELOCITY
+                # JUMP REWARD LOGIC FOR HUMAN
+                if self.human_player.jump_reward_cooldown == 0:
+                    self.human_player.score += 10
+                    self.human_player.jump_reward_cooldown = 150
         
         # --- Apply physics and check score for ALL players (AI and Human) ---
         for p in self.all_players:
+            # Decrement score cooldown timer
+            if p.score_cooldown_timer > 0:
+                p.score_cooldown_timer -= 1
+
+            # NEW: Decrement other reward cooldowns
+            if p.movement_reward_cooldown > 0:
+                p.movement_reward_cooldown -= 1
+            if p.jump_reward_cooldown > 0:
+                p.jump_reward_cooldown -= 1
+
+            # NEW: Movement reward and penalty logic
+            direction_to_line = p.get_direction_to_score_line(self.score_line_x)
+            is_moving_towards_line = False
+            if direction_to_line == -1 and p.x > p.last_x_for_reward_logic: # Score line to right, player moved right
+                is_moving_towards_line = True
+            elif direction_to_line == 1 and p.x < p.last_x_for_reward_logic: # Score line to left, player moved left
+                is_moving_towards_line = True
+
+            if direction_to_line == 0: # Player is at or beyond the score line relative to their direction of approach
+                is_moving_towards_line = False # Not moving 'towards' if already there or past it.
+
+            # Default increment for penalty timer, reset if conditions met.
+            p.time_since_last_movement_reward += 1
+
+            if is_moving_towards_line:
+                p.consecutive_movement_frames += 1
+                p.time_since_last_movement_reward = 0 # Reset if actively moving towards
+            else:
+                p.consecutive_movement_frames = 0
+                # If not moving towards, p.time_since_last_movement_reward continues to increment (already done above)
+
+            if p.movement_reward_cooldown == 0:
+                awarded_points = 0
+                if p.consecutive_movement_frames >= 20: # Approx 2/3 second of consistent movement
+                    awarded_points = 4
+                elif p.consecutive_movement_frames >= 10: # Approx 1/3 second
+                    awarded_points = 2
+                elif p.consecutive_movement_frames >= 5: # Approx 1/6 second
+                    awarded_points = 1
+
+                if awarded_points > 0:
+                    p.score += awarded_points
+                    p.movement_reward_cooldown = 30 # Cooldown for 1 second
+                    p.time_since_last_movement_reward = 0 # Reset penalty timer as reward was given
+                    p.consecutive_movement_frames = 0 # Reset counter after reward
+
+            # Apply penalty if 30 frames pass without EITHER moving towards the line OR getting a movement category reward
+            if p.time_since_last_movement_reward >= 30: # Approx 1 second of no positive action
+                p.score -= 4
+                p.time_since_last_movement_reward = 0 # Reset penalty timer
+
+            # Update last_x for next frame's comparison for this specific reward logic
+            p.last_x_for_reward_logic = p.x
+
             p.apply_physics(self.platforms)
             p.check_score(self.score_line_x)
 
             # Check if player fell off (for both AI and human)
             if p.y > HEIGHT:
                 p.respawn(self.platforms) # <--- Respawn with random position
-                p.score -= 1 # Penalize for falling
+                p.score -= 50 # Penalize for falling
 
 
-    '''    # --- Human Player Scoring update (separate from AI training) ---
+    '''    Jules, leave this comment block alone
+            # --- Human Player Scoring update (separate from AI training) ---
         if self.is_human == True:
             human_score_diff = self.human_player.score - self.human_player_last_score
             if human_score_diff != 0:
@@ -277,12 +384,20 @@ class Game:
             p.draw()
 
         for i, p in enumerate(self.ai_players):
-            txt = font.render(f"AI{i} Score: {p.score}", True, (255, 255, 255))
+            txt = font.render(f"AI{i} Score: {p.score}", True, (p.color))
             win.blit(txt, (10, 10 + 20 * i))
 
         if self.is_human:
             human_txt = font.render(f"Human Score: {self.human_player.score}", True, (255, 255, 0))
             win.blit(human_txt, (10, 10 + 20 * NUM_AI_PLAYERS))
+
+        fps_display_value = int(self.FPS) // 30
+        fps_text = font.render(f"FPS: {fps_display_value}X", True, (255, 255, 255))
+        # Position in top-right corner with some padding
+        # WIDTH - text_width - padding
+        fps_text_x = WIDTH - fps_text.get_width() - 10
+        fps_text_y = 20
+        win.blit(fps_text, (fps_text_x, fps_text_y))
 
         pygame.display.flip()
 
