@@ -17,13 +17,13 @@ def load_weights(nn, suffix=""):
         nn.W2 = data['W2']
         nn.b2 = data['b2']
 
-def train_step(nn, inputs, action_performed, reward, learning_rate=0.01):
+def train_step(nn, inputs, action_performed, reward, learning_rate=0.1):
     # Forward pass - no change
     z1 = np.dot(inputs, nn.W1) + nn.b1
     a1 = np.tanh(z1) # Hidden layer activation
     z2 = np.dot(a1, nn.W2) + nn.b2
     current_pred = np.tanh(z2) # Output layer activation
-
+    
     # --- Corrected Backpropagation ---
 
     # 1. Calculate the 'error' term for the output layer
@@ -55,13 +55,20 @@ def train_step(nn, inputs, action_performed, reward, learning_rate=0.01):
     # A simple way to do this is to multiply the learning rate by the reward's sign and magnitude.
     
     # Ensure there's an actual update if reward is non-zero
+    
     if reward != 0:
         # Scale updates by the reward. A negative reward reverses the update direction,
         # which is correct for penalizing actions. abs(reward) could also be used
         # if you only want magnitude scaling, but `reward` directly is better for direction.
+        
         nn.W1 += learning_rate * dW1 * reward
         nn.b1 += learning_rate * db1 * reward
         nn.W2 += learning_rate * dW2 * reward
         nn.b2 += learning_rate * db2 * reward
-    
-    #print(error_for_gradient, "\n\n", learning_target, "\n\n", current_pred, "\n\n", reward, "\n\n",)
+        '''
+        nn.W1 += learning_rate * reward
+        nn.b1 += learning_rate * reward
+        nn.W2 += learning_rate * reward
+        nn.b2 += learning_rate * reward
+        '''
+    #print("\n\n", "\n\n", "\n\n", reward, "\n\n",)

@@ -380,13 +380,13 @@ class Game:
             p.last_x_for_reward_logic = p.x
 
             p.apply_physics(self.platforms)
-            p.check_score(self.score_line_x)
-
+            
             # Check if player fell off (for both AI and human)
-            if p.y > HEIGHT:
+            if p.y > (HEIGHT - 60):
+                p.score -= 5000 # Penalize for falling
                 p.respawn(self.platforms) # <--- Respawn with random position
-                p.score -= 50 # Penalize for falling
-
+            
+            p.check_score(self.score_line_x)    
 
     '''    Jules, leave this comment block alone
             # --- Human Player Scoring update (separate from AI training) ---

@@ -12,4 +12,6 @@ class SimpleNN:
         a1 = np.tanh(z1)
         z2 = np.dot(a1, self.W2) + self.b2
         output = np.tanh(z2)
+        #print (output)
         return output  # output[0] = horizontal move (-1 to 1), output[1] = jump signal (-1 to 1)
+        
