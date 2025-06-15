@@ -9,3 +9,5 @@ __pycache__/__init__.cpython-313.pyc
 /weights
 /__pycache__
 *.pyc
+__pycache__/__main__.cpython-313.pyc
+__pycache__/training_utils.cpython-313.pyc

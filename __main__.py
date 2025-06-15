@@ -170,7 +170,7 @@ class Game:
             Platform(260, HEIGHT - 50, 340, 50)
         ]
         self.score_line_x = 230
-
+        self.edge_contact_count = 0
         self.ai_nets = [SimpleNN() for _ in range(NUM_AI_PLAYERS)]
         for idx, net in enumerate(self.ai_nets):
             load_weights(net, suffix=f"_{idx}")
@@ -206,6 +206,15 @@ class Game:
        
         self.running = True
 
+    def punish_edge_contact(self, player):
+
+        # Penalize an AI player when touching screen edges.
+        for p in self.ai_players:
+            if player.x <= 0 or player.x >= WIDTH - player.width:
+                self.edge_contact_count += 1
+                if self.edge_contact_count == 10:
+                    player.score -= 10
+                    self.edge_contact_count = 0
 
     def reset_all_players(self):
         for p in self.ai_players: # <--- Loop and call respawn
@@ -277,17 +286,31 @@ class Game:
                 p.vy = JUMP_VELOCITY
                 # JUMP REWARD LOGIC FOR AI
                 if p.jump_reward_cooldown == 0:
-                    p.score += 10
+                    p.score += 5
                     p.jump_reward_cooldown = 150
             
             score_diff = p.score - self.last_scores[i]
             if score_diff != 0:
                 gamma = 0.95
                 if self.replay_buffer:
-                    current_input, current_output = self.replay_buffer[-1]
-                    train_step(self.ai_nets[i], current_input, current_output, score_diff)
+                    # Distinguish major events (e.g., clearing a gap) from small
+                    # movement rewards so we don't encourage constant jumping
+                    MAJOR_REWARD_THRESHOLD = 1
+                    if abs(score_diff) >= MAJOR_REWARD_THRESHOLD:
+                        for step, (buf_inputs, buf_outputs) in enumerate(reversed(self.replay_buffer)):
+                            target = buf_outputs.copy()
+                            if score_diff > 0:
+                                target[1] = 1.0  # encourage jump on big positive reward
+                            discounted = score_diff * (gamma ** step)
+                            train_step(self.ai_nets[i], buf_inputs, target, discounted)
+                    else:
+                        for step, (buf_inputs, buf_outputs) in enumerate(reversed(self.replay_buffer)):
+                            discounted = score_diff * (gamma ** step)
+                            train_step(self.ai_nets[i], buf_inputs, buf_outputs, discounted)
                     save_weights(self.ai_nets[i], suffix=f"_{i}")
                 self.last_scores[i] = p.score
+
+            self.punish_edge_contact(p)
 
         # --- Update Human Player ---
         if self.is_human == True:
